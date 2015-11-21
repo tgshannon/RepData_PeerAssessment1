@@ -1,0 +1,91 @@
+---
+title: "Storm Events Database (PA2_assignment.Rmd)"
+author: "TG SHANNON"
+date: "November 21, 2015"
+output:
+  html_document: 
+    keep_md: true
+---
+
+## Synopsis 
+The Storm Events Database database currently contains data from January 1950 to July 2015, as entered by NOAA's National Weather Service (NWS). Due to changes in the data collection and processing procedures over time, there are unique periods of record available depending on the event type:
+
+1. Tornado: From 1950 through 1954, only tornado events were recorded.
+
+2. Tornado, Thunderstorm Wind and Hail: From 1955 through 1992, only tornado, thunderstorm wind and hail events were keyed from the paper publications into digital data. From 1993 to 1995, only tornado, thunderstorm wind and hail events have been extracted from the Unformatted Text Files.
+
+3. All Event Types (48 from Directive 10-1605): From 1996 to present, 48 event types are recorded as defined in [NWS Directive 10-1605]("http://www.ncdc.noaa.gov/stormevents/pd01016005curr.pdf"). 
+
+## Formulate the questions
+Across the United States, which types of events (as indicated in the EVTYPE variable) are most harmful with respect to population health?
+
+Across the United States, which types of events have the greatest economic consequences?
+
+## Data Processing
+Data from 1996 to present was used to start the analysis since all event types were collected in the database starting in 1996. During analysis it was discovered that many of the factors had duplicate labels making answering the questions difficult, so the data was filtered to data from 2008 to present. 
+
+```{r echo=TRUE, cache=TRUE}
+if (!file.exists("raw.csv.bz2")) {
+  download.file("https://d396qusza40orc.cloudfront.net/repdata%2Fdata%2FStormData.csv.bz2", "raw.csv.bz2", "curl")
+  download.file("https://d396qusza40orc.cloudfront.net/repdata%2Fpeer2_doc%2Fpd01016005curr.pdf", "datadef.pdf", "curl")
+}
+raw <- read.csv("raw.csv.bz2")
+dim(raw)
+raw$Date <- as.Date(raw$BGN_DATE, "%m/%d/%Y")
+tidy <- raw[raw$Date > "1995-12-31", c("Date", "EVTYPE", "INJURIES", "FATALITIES", "PROPDMG", "PROPDMGEXP", "CROPDMG", "CROPDMGEXP")]
+tidy2 <- raw[raw$Date > "2007-12-31", c("Date", "EVTYPE", "INJURIES", "FATALITIES", "PROPDMG", "PROPDMGEXP", "CROPDMG", "CROPDMGEXP")]
+```
+The original dataset contains `r length(unique(raw$EVTYPE))` event type factors. This dataset was filtered to only data starting in 1996 to present, and contains `r length(unique(tidy$EVTYPE))` event type factors. In 2007 Directive 10-1605 specified that only the 48 events defined in the directive could be used in the database. The event database was then filtered to events starting in 2008. This database contains only the 
+`r length(unique(tidy2$EVTYPE))` events specified by the directive, and is used to address the questions in this analysis.
+
+## Explore the data
+```{r cache=TRUE}
+str(raw)
+tidy2 <- droplevels(tidy2)
+str(tidy2)
+
+tidy2$Health.Pop <- tidy2$INJURIES + tidy2$FATALITIES
+tidy2$Impact.Econ <- 0
+
+for (i in 1:length(tidy2$Impact.Econ)) {
+  if (tidy2$PROPDMGEXP[i] == 'B')
+    tidy2$Impact.Econ[i] <- tidy2$Impact.Econ[i] + tidy2$PROPDMG[i] * 10^9
+  if (tidy2$PROPDMGEXP[i] == 'M')
+    tidy2$Impact.Econ[i] <- tidy2$Impact.Econ[i] + tidy2$PROPDMG[i] * 10^6
+  if (tidy2$PROPDMGEXP[i] == 'K')
+    tidy2$Impact.Econ[i] <- tidy2$Impact.Econ[i] + tidy2$PROPDMG[i] * 10^3
+  if (tidy2$PROPDMGEXP[i] == '0')
+    tidy2$Impact.Econ[i] <- tidy2$Impact.Econ[i] + tidy2$PROPDMG[i]
+  if (tidy2$CROPDMGEXP[i] == 'B')
+    tidy2$Impact.Econ[i] <- tidy2$Impact.Econ[i] + tidy2$CROPDMG[i] * 10^9
+  if (tidy2$CROPDMGEXP[i] == 'M')
+    tidy2$Impact.Econ[i] <- tidy2$Impact.Econ[i] + tidy2$CROPDMG[i] * 10^6
+  if (tidy2$CROPDMGEXP[i] == 'K')
+    tidy2$Impact.Econ[i] <- tidy2$Impact.Econ[i] + tidy2$CROPDMG[i] * 10^3
+  if (tidy2$CROPDMGEXP[i] == '0')
+    tidy2$Impact.Econ[i] <- tidy2$Impact.Econ[i] + tidy2$CROPDMG[i]
+}
+tidy2$Impact.Econ <- tidy2$Impact.Econ / 10^6
+```
+Group data for analysis
+```{r}
+head(tidy2[tidy2$PROPDMGEXP=='B',])
+popImpact <- tidy2[tidy2$Health.Pop > 1,]
+summary(popImpact, maxsum=13)
+pi <- aggregate(popImpact$Health.Pop, by=list(popImpact$EVTYPE), FUN=sum)
+pi <- pi[with(pi, order(-x))[1:12],]
+pi <- droplevels(pi)
+par(oma=c(5.5,6.5,1,0.2))
+barplot(pi$x, names.arg = pi$Group.1, las=2, main="Top 12 event impacts on Population", xlim=c(0,10000), xlab = "Injuries + Fatalities", horiz = TRUE, cex.names = 0.8)
+econImpact <- tidy2[tidy2$Impact.Econ > 1,]
+summary(econImpact, maxsum=13)
+ei <- aggregate(econImpact$Impact.Econ, by=list(econImpact$EVTYPE), FUN=sum)
+ei <- ei[with(ei, order(-x))[1:12],]
+ei <- droplevels(ei)
+barplot(ei$x, names.arg = ei$Group.1, las=2, main="Top 12 event impacts on Economy", xlab = 'Millions of Dollars', xlim=c(0,16000), horiz=TRUE, cex.names = 0.8)
+```
+
+## Results
+Injuries and fatalities were aggregated by event type to determine the population impact of storm events. Property and crop damage were aggregated by event type to determine the economic impact of storm events. Only events from 2008 forward were used for the analysis since the event types were limited to the 48 defined in Directive 10-1065.
+
+Tornados are the storm event having the largest impact on the population via injuries and fatalities. Floods have the largest economic impact via property and crop damage.
